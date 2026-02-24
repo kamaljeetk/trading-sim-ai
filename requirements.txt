@@ -1,0 +1,31 @@
+# LLM & Orchestration
+langchain>=0.1.0
+langchain-openai>=0.0.5
+langchain-community>=0.0.20
+langgraph>=0.0.25
+langchain-core>=0.1.23
+langchain-huggingface>=0.0.1
+
+# Vector Database
+pinecone>=3.0.0
+
+# Market Data
+yfinance>=0.2.36
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Database
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+
+# Data & Utilities
+pydantic>=2.5.0
+python-dotenv>=1.0.0
+python-dateutil>=2.8.2
+pytz>=2023.3
+requests>=2.31.0
+
+# Dashboard
+streamlit>=1.32.0
+plotly>=5.19.0
+watchdog>=4.0.0

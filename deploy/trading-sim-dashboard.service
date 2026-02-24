@@ -1,0 +1,28 @@
+[Unit]
+Description=Trading Sim AI — Streamlit Dashboard
+Documentation=https://github.com/YOUR_USERNAME/trading-sim-ai
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/trading-sim-ai
+EnvironmentFile=/opt/trading-sim-ai/.env
+ExecStart=/opt/trading-sim-ai/venv/bin/streamlit run dashboard.py \
+    --server.port=8501 \
+    --server.headless=true \
+    --server.enableCORS=false
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=trading-sim-dashboard
+
+# Security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
