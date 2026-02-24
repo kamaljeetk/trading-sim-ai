@@ -16,7 +16,7 @@ st.set_page_config(
     page_title="AI Trading Sim",
     page_icon="📈",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="expanded",  # browser may override after first visit
 )
 
 # ── Global CSS ─────────────────────────────────────────────────────────────────
@@ -24,11 +24,8 @@ st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
     footer    {visibility: hidden;}
-    header    {visibility: hidden;}
-    [data-testid="collapsedControl"] {
-        visibility: visible !important;
-        display: block !important;
-    }
+    [data-testid="stDecoration"] {display: none;}
+    /* Keep header visible so sidebar toggle works */
     .block-container {
         padding-top: 1rem;
         padding-bottom: 1rem;
