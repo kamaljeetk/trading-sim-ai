@@ -50,6 +50,10 @@ def _migrate_columns():
     migrations = [
         "ALTER TABLE executions ADD COLUMN IF NOT EXISTS stop_loss_price NUMERIC(12,4)",
         "ALTER TABLE executions ADD COLUMN IF NOT EXISTS profit_target_price NUMERIC(12,4)",
+        "ALTER TABLE executions ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active'",
+        "ALTER TABLE executions ADD COLUMN IF NOT EXISTS exit_price NUMERIC(12,4)",
+        "ALTER TABLE executions ADD COLUMN IF NOT EXISTS exit_time TIMESTAMP",
+        "ALTER TABLE executions ADD COLUMN IF NOT EXISTS exit_reason VARCHAR(50)",
     ]
     with engine.connect() as conn:
         for stmt in migrations:

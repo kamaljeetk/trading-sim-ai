@@ -91,13 +91,19 @@ Analyze performance, explain what worked and what didn't, and extract 1-3 lesson
             current_prices[symbol] = price
 
         # Compute portfolio value
+        # For positions already stopped-out/target-hit intraday, use the locked-in exit_price
         total_value = 0.0
         for exe in executions:
-            symbol = exe.get("symbol")
-            shares = float(exe.get("shares", 0))
-            price = current_prices.get(symbol)
-            if price:
-                total_value += shares * price
+            symbol     = exe.get("symbol")
+            shares     = float(exe.get("shares", 0))
+            status     = exe.get("status", "active")
+            exit_price = exe.get("exit_price")
+            if status in ("stopped_out", "target_hit") and exit_price:
+                total_value += shares * exit_price
+            else:
+                price = current_prices.get(symbol)
+                if price:
+                    total_value += shares * price
 
         pnl = total_value - budget
         portfolio_return = (pnl / budget) * 100
@@ -126,24 +132,43 @@ Analyze performance, explain what worked and what didn't, and extract 1-3 lesson
         # Evaluate whether each position hit its stop or target
         outcome_lines = []
         for exe in executions:
-            sym = exe.get("symbol")
-            current = current_prices.get(sym)
-            stop = exe.get("stop_loss_price")
-            target = exe.get("profit_target_price")
-            if current and stop and target:
-                if current <= stop:
-                    outcome_lines.append(f"  {sym}: STOP HIT (${current:.4f} ≤ stop ${stop:.4f})")
-                elif current >= target:
-                    outcome_lines.append(f"  {sym}: TARGET HIT (${current:.4f} ≥ target ${target:.4f})")
-                else:
-                    pct_to_stop = (current - stop) / stop * 100
-                    pct_to_target = (target - current) / current * 100
-                    outcome_lines.append(
-                        f"  {sym}: in-range (${current:.4f}) — "
-                        f"{pct_to_stop:.1f}% above stop, {pct_to_target:.1f}% below target"
-                    )
+            sym        = exe.get("symbol")
+            status     = exe.get("status", "active")
+            exit_price = exe.get("exit_price")
+            exit_reason = exe.get("exit_reason")
+            entry      = exe.get("price", 0)
+
+            if status == "stopped_out" and exit_price:
+                pct = (exit_price - entry) / entry * 100 if entry else 0
+                outcome_lines.append(
+                    f"  {sym}: STOPPED OUT intraday @ ${exit_price:.4f} "
+                    f"({pct:.2f}%) — reason: {exit_reason}"
+                )
+            elif status == "target_hit" and exit_price:
+                pct = (exit_price - entry) / entry * 100 if entry else 0
+                outcome_lines.append(
+                    f"  {sym}: TARGET HIT intraday @ ${exit_price:.4f} "
+                    f"(+{pct:.2f}%) — reason: {exit_reason}"
+                )
             else:
-                outcome_lines.append(f"  {sym}: no stop/target data")
+                # Active position — check live price vs stop/target
+                current = current_prices.get(sym)
+                stop    = exe.get("stop_loss_price")
+                target  = exe.get("profit_target_price")
+                if current and stop and target:
+                    if current <= stop:
+                        outcome_lines.append(f"  {sym}: STOP HIT EOD (${current:.4f} ≤ stop ${stop:.4f})")
+                    elif current >= target:
+                        outcome_lines.append(f"  {sym}: TARGET HIT EOD (${current:.4f} ≥ target ${target:.4f})")
+                    else:
+                        pct_to_stop   = (current - stop)   / stop   * 100
+                        pct_to_target = (target - current) / current * 100
+                        outcome_lines.append(
+                            f"  {sym}: in-range (${current:.4f}) — "
+                            f"{pct_to_stop:.1f}% above stop, {pct_to_target:.1f}% to target"
+                        )
+                else:
+                    outcome_lines.append(f"  {sym}: no stop/target data")
         stop_target_str = "\n".join(outcome_lines) if outcome_lines else "  (no stop/target data)"
 
         result = self.chain.invoke({

@@ -121,6 +121,9 @@ def evaluate_only(target_date: str = None):
                 "invested": float(alloc.allocation_dollars),
                 "stop_loss_price": float(exe.stop_loss_price) if exe.stop_loss_price else None,
                 "profit_target_price": float(exe.profit_target_price) if exe.profit_target_price else None,
+                "status": exe.status or "active",
+                "exit_price": float(exe.exit_price) if exe.exit_price else None,
+                "exit_reason": exe.exit_reason,
             })
     finally:
         db.close()
@@ -224,6 +227,33 @@ def show_status():
         print(f"  Error reading DB: {e}")
 
 
+def _check_positions_once(target_date: str = None):
+    """Single-pass intraday stop/target check."""
+    from tools.intraday_monitor import check_positions
+    from datetime import date as date_cls
+    today = target_date or str(date_cls.today())
+
+    print("\n" + "=" * 60)
+    print("  INTRADAY POSITION CHECK")
+    print(f"  Date: {today}")
+    print("=" * 60 + "\n")
+
+    result = check_positions(target_date=today)
+
+    print("\n" + "=" * 60)
+    print(f"  Positions checked : {result['checked']}")
+    print(f"  Triggers fired    : {result['triggered']}")
+    for r in result["results"]:
+        print(f"    {r['symbol']:8s} → {r['action']:12s} @ ${r['price']:.4f}")
+    print()
+
+
+def _run_monitor(target_date: str = None, interval: int = 15):
+    """Start the intraday monitor loop."""
+    from tools.intraday_monitor import run_monitor_loop
+    run_monitor_loop(target_date=target_date, interval_minutes=interval)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Agentic Trading Simulation System"
@@ -248,11 +278,31 @@ def main():
         "--status", action="store_true",
         help="Show recent sessions from database"
     )
+    parser.add_argument(
+        "--check-positions", action="store_true",
+        help="Single-pass intraday stop-loss/target check for the given --date"
+    )
+    parser.add_argument(
+        "--monitor", action="store_true",
+        help="Poll positions every --interval minutes during market hours (9:30 AM–4 PM ET)"
+    )
+    parser.add_argument(
+        "--interval", type=int, default=15,
+        help="Monitor loop interval in minutes (default: 15). Only used with --monitor."
+    )
 
     args = parser.parse_args()
 
     if args.status:
         show_status()
+        return
+
+    if getattr(args, "check_positions", False):
+        _check_positions_once(target_date=args.date)
+        return
+
+    if getattr(args, "monitor", False):
+        _run_monitor(target_date=args.date, interval=args.interval)
         return
 
     if getattr(args, "evaluate_only", False):

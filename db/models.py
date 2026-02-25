@@ -111,6 +111,12 @@ class Execution(Base):
     profit_target_price = Column(Numeric(12, 4))   # 12% above entry (2:1 R:R)
     executed_at         = Column(DateTime, server_default=func.now())
 
+    # ── Intraday monitoring ───────────────────────────────────────────────────
+    status      = Column(String(20), default="active")   # active | stopped_out | target_hit | held_eod
+    exit_price  = Column(Numeric(12, 4), nullable=True)
+    exit_time   = Column(DateTime, nullable=True)
+    exit_reason = Column(String(50), nullable=True)      # stop_loss | profit_target | eod_close
+
     allocation = relationship("Allocation", back_populates="execution")
 
 

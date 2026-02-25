@@ -119,8 +119,9 @@ def _run_subprocess(args: list, label: str):
         "[evaluate_only]":   "EOD — loading existing session",
         "[PineconeMemory]":  "Pinecone memory",
         "[NewsSentiment]":   "News sentiment fetch",
-        "[FallbackHandler]": "⚠️ Agent fallback triggered",
-        "SUMMARY":           "Pipeline complete — writing summary",
+        "[FallbackHandler]":    "⚠️ Agent fallback triggered",
+        "[IntradayMonitor]":    "Intraday Monitor — checking stop-loss levels",
+        "SUMMARY":              "Pipeline complete — writing summary",
     }
 
     with st.status(f"Running: {label}", expanded=True) as status:
@@ -234,6 +235,13 @@ with st.sidebar:
     if st.button("📊 EOD Evaluate", use_container_width=True):
         with st.spinner(f"Running EOD evaluation for {selected_date}..."):
             _run_subprocess(_eod_args, "EOD evaluation")
+
+    _check_args = ["--check-positions"]
+    if selected_date:
+        _check_args += ["--date", str(selected_date)]
+    if st.button("🔔 Check Positions", use_container_width=True):
+        with st.spinner(f"Checking positions for {selected_date}..."):
+            _run_subprocess(_check_args, "Intraday position check")
 
     st.divider()
 
