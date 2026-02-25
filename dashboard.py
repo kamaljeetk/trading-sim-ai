@@ -35,6 +35,37 @@ st.markdown("""
     ::-webkit-scrollbar        { width: 6px; }
     ::-webkit-scrollbar-track  { background: #0E1117; }
     ::-webkit-scrollbar-thumb  { background: #2E3447; border-radius: 3px; }
+
+    /* ── Tab bar visibility ─────────────────────────────── */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 2px;
+        background-color: #1A1F2E;
+        border-radius: 6px 6px 0 0;
+        padding: 4px 4px 0 4px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 44px;
+        padding: 0 20px;
+        color: #A0AEC0;
+        background-color: transparent;
+        border-radius: 5px 5px 0 0;
+        font-size: 14px;
+        font-weight: 500;
+    }
+    .stTabs [data-baseweb="tab"]:hover {
+        color: #FAFAFA;
+        background-color: #252B3B;
+    }
+    .stTabs [aria-selected="true"] {
+        color: #00D4AA !important;
+        background-color: #0E1117 !important;
+    }
+    .stTabs [data-baseweb="tab-highlight"] {
+        background-color: #00D4AA;
+    }
+    .stTabs [data-baseweb="tab-border"] {
+        background-color: #2E3447;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -163,6 +194,23 @@ with st.sidebar:
     st.markdown("## 📈 AI Trading Sim")
     st.divider()
 
+    # ── Date Selector (first, so selected_date is available for buttons) ───────
+    st.markdown("### View Trading Day")
+    all_dates = queries.get_all_trading_dates()
+
+    if all_dates:
+        selected_date = st.selectbox(
+            "Select date:",
+            options=all_dates,
+            index=0,
+            label_visibility="collapsed",
+        )
+    else:
+        selected_date = None
+        st.caption("No simulations run yet.")
+
+    st.divider()
+
     # ── Simulation Controls ────────────────────────────────────────────────────
     st.markdown("### Simulation Controls")
 
@@ -177,26 +225,12 @@ with st.sidebar:
             with st.spinner("Running full day simulation..."):
                 _run_subprocess(["--run-daily", "--evaluate"], "Full day simulation")
 
+    _eod_args = ["--evaluate-only"]
+    if selected_date:
+        _eod_args += ["--date", str(selected_date)]
     if st.button("📊 EOD Evaluate", use_container_width=True):
-        with st.spinner("Running EOD evaluation on today's session..."):
-            _run_subprocess(["--evaluate-only"], "EOD evaluation")
-
-    st.divider()
-
-    # ── Date Selector ──────────────────────────────────────────────────────────
-    st.markdown("### View Trading Day")
-    all_dates = queries.get_all_trading_dates()
-
-    if all_dates:
-        selected_date = st.selectbox(
-            "Select date:",
-            options=all_dates,
-            index=0,
-            label_visibility="collapsed",
-        )
-    else:
-        selected_date = None
-        st.caption("No simulations run yet.")
+        with st.spinner(f"Running EOD evaluation for {selected_date}..."):
+            _run_subprocess(_eod_args, "EOD evaluation")
 
     st.divider()
 
