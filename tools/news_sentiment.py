@@ -37,23 +37,31 @@ def _request(endpoint: str, params: Dict) -> Optional[Dict]:
     if not api_key:
         if not _NO_KEY_WARNED:
             log.warning("[NewsSentiment] POLYGON_API_KEY not set — news context disabled.")
+            print("[Polygon] WARNING: POLYGON_API_KEY not set — skipping news fetch.")
             _NO_KEY_WARNED = True
         return None
 
+    display_params = {k: v for k, v in params.items() if k != "apiKey"}
+    url = f"{POLYGON_BASE_URL}{endpoint}"
+    log.info("[Polygon] GET %s params=%s", url, display_params)
+    print(f"[Polygon] Fetching: GET {url}  params={display_params}")
+
     params["apiKey"] = api_key
     try:
-        resp = requests.get(
-            f"{POLYGON_BASE_URL}{endpoint}",
-            params=params,
-            timeout=10,
-        )
+        resp = requests.get(url, params=params, timeout=10)
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        count = len(data.get("results", []))
+        log.info("[Polygon] Response: %d results (status=%s)", count, resp.status_code)
+        print(f"[Polygon] Response: {count} articles returned (HTTP {resp.status_code})")
+        return data
     except requests.exceptions.HTTPError as e:
-        log.error("[NewsSentiment] HTTP error %s: %s", e.response.status_code, e)
+        log.error("[Polygon] HTTP error %s: %s", e.response.status_code, e)
+        print(f"[Polygon] ERROR: HTTP {e.response.status_code} — {e}")
         return None
     except Exception as e:
-        log.error("[NewsSentiment] Request failed: %s", e)
+        log.error("[Polygon] Request failed: %s", e)
+        print(f"[Polygon] ERROR: {e}")
         return None
 
 
@@ -119,10 +127,17 @@ def get_market_headlines(limit: int = 15) -> List[Dict]:
         insights = article.get("insights", [])
         headlines.append({
             "title": article.get("title", ""),
-            "published_utc": article.get("published_utc", "")[:16],  # trim to minute precision
-            "tickers": article.get("tickers", [])[:5],  # cap at 5 tickers per article
+            "published_utc": article.get("published_utc", "")[:16],
+            "tickers": article.get("tickers", [])[:5],
             "overall_sentiment": _article_overall_sentiment(insights),
         })
+
+    log.info("[Polygon] get_market_headlines: fetched %d headlines", len(headlines))
+    print(f"\n[Polygon] Market Headlines ({len(headlines)} articles):")
+    for h in headlines:
+        print(f"  [{h['overall_sentiment'].upper():8s}] {h['published_utc']}  {h['title'][:80]}")
+    print()
+
     return headlines
 
 
@@ -179,6 +194,16 @@ def get_batch_sentiment(symbols: List[str]) -> Dict[str, Dict]:
             "headline_count": ticker_article_count[symbol],
             "top_headlines": ticker_titles[symbol],
         }
+
+    log.info("[Polygon] get_batch_sentiment: %s", {s: r["sentiment_score"] for s, r in result.items()})
+    print(f"\n[Polygon] Batch Sentiment for {sorted(symbol_set)}:")
+    for sym in sorted(result):
+        r = result[sym]
+        print(f"  {sym:6s}  score={r['sentiment_score']:+.2f}  "
+              f"(+{r['positive']} -{r['negative']} ~{r['neutral']})  "
+              f"articles={r['headline_count']}")
+    print()
+
     return result
 
 

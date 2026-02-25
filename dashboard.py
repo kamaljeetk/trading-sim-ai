@@ -161,6 +161,9 @@ def _run_subprocess(args: list, label: str):
                 if not line:
                     continue
 
+                # Echo to server terminal so logs are visible there too
+                print(line, flush=True)
+
                 # Resolve a human-readable label for known keywords
                 display = line
                 for keyword, friendly in AGENT_LABELS.items():
