@@ -49,7 +49,7 @@ Select up to 5 assets. Prioritize:
 2. Assets in sectors that appeared in best-performing days
 3. Higher conviction_score for assets matching winning historical patterns
 4. No single sector > 40% of selection
-5. In defensive mode: prefer bonds and low-volatility ETFs""")
+5. In defensive mode: prefer defensive sector stocks (consumer staples, healthcare, utilities) — NO ETFs or bonds""")
         ])
 
         self.chain = self.prompt | self.llm | self.parser
@@ -113,6 +113,8 @@ Select up to 5 assets. Prioritize:
         else:
             best_days_str = "No profitable days recorded yet."
 
+        valid_symbols = {c.get("symbol", "").upper() for c in candidates}
+
         result = self.chain.invoke({
             "macro_bias": macro_signals.get("macro_bias", "neutral"),
             "risk_environment": macro_signals.get("risk_environment", "mixed"),
@@ -123,6 +125,16 @@ Select up to 5 assets. Prioritize:
             "candidates": fmt_candidates(candidates),
             "format_instructions": self.parser.get_format_instructions(),
         })
+
+        # Hard filter: remove any symbol the LLM invented that wasn't in our candidate list
+        original_count = len(result.get("selected_assets", []))
+        result["selected_assets"] = [
+            a for a in result.get("selected_assets", [])
+            if a.get("symbol", "").upper() in valid_symbols
+        ]
+        removed = original_count - len(result["selected_assets"])
+        if removed:
+            print(f"  [StrategyAgent] Filtered out {removed} hallucinated symbol(s) not in candidate list")
 
         duration_ms = int((time.time() - start) * 1000)
         result["_duration_ms"] = duration_ms

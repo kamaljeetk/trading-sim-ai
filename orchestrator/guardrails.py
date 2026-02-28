@@ -143,7 +143,7 @@ class VIXGuard:
     Defensive mode forces bond-only allocation.
     """
 
-    THRESHOLD = float(os.getenv("VIX_DEFENSIVE_THRESHOLD", "25"))
+    THRESHOLD = float(os.getenv("VIX_DEFENSIVE_THRESHOLD", "35"))
 
     @classmethod
     def check(cls) -> Dict:

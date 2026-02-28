@@ -8,9 +8,7 @@ from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from config.agent_config import get_llm, AGENT_PROMPTS
-from tools.market_data import (
-    get_top_movers, get_sector_etfs, get_index_data, get_bond_etfs
-)
+from tools.market_data import get_top_movers, get_defensive_stocks
 from tools.news_sentiment import get_batch_sentiment
 
 
@@ -37,25 +35,17 @@ class MarketScannerAgent:
 - Bias: {macro_bias}
 - Risk environment: {risk_environment}
 - Dominant themes: {dominant_themes}
+- Mode: {mode}
 
-Available market data (real prices from yfinance + Polygon.io news sentiment):
+Available individual stocks (real prices from yfinance + Polygon.io news sentiment):
 
-TOP MOVERS:
-{top_movers}
+{stock_list}
 
-SECTOR ETFs:
-{sector_etfs}
-
-INDEX ETFs:
-{index_etfs}
-
-BOND ETFs:
-{bond_etfs}
-
-Select up to 10 candidate assets aligned with the macro environment.
+Select up to 10 candidate stocks aligned with the macro environment.
 Return ONLY symbols that appear in the data above.
-Prioritize assets with POSITIVE news sentiment and strong momentum.
-Penalize assets with NEGATIVE news sentiment unless technical momentum is exceptional.""")
+Prioritize stocks with POSITIVE news sentiment and strong momentum.
+Penalize stocks with NEGATIVE news sentiment unless technical momentum is exceptional.
+In defensive mode, prefer low-volatility stocks from consumer staples, healthcare, or utilities.""")
         ])
 
         self.chain = self.prompt | self.llm | self.parser
@@ -73,23 +63,18 @@ Penalize assets with NEGATIVE news sentiment unless technical momentum is except
         """
         start = time.time()
 
-        # Fetch real market data
-        movers = get_top_movers(n=15)
-        sectors = get_sector_etfs()
-        indices = get_index_data()
-        bonds = get_bond_etfs()
-
-        # In defensive mode, bias toward bonds
+        # Fetch real stock data
+        # Defensive mode: blend top movers + defensive stocks (more risk-tolerant)
         if mode == "defensive":
-            movers = []  # skip individual stocks
+            stocks = get_top_movers(n=10) + get_defensive_stocks(n=10)
+            # deduplicate by symbol
+            seen = set()
+            stocks = [s for s in stocks if not (s["symbol"] in seen or seen.add(s["symbol"]))]
+        else:
+            stocks = get_top_movers(n=20)
 
         # Collect all symbols for batch sentiment fetch
-        all_symbols = (
-            [a["symbol"] for a in movers]
-            + [a["symbol"] for a in sectors]
-            + [a["symbol"] for a in indices]
-            + [a["symbol"] for a in bonds]
-        )
+        all_symbols = [a["symbol"] for a in stocks]
         sentiment_data = get_batch_sentiment(all_symbols) if all_symbols else {}
 
         def sentiment_label(score: float) -> str:
@@ -99,7 +84,7 @@ Penalize assets with NEGATIVE news sentiment unless technical momentum is except
                 return "negative"
             return "neutral"
 
-        def fmt_assets(assets: List[Dict]) -> str:
+        def fmt_stocks(assets: List[Dict]) -> str:
             if not assets:
                 return "  (none)"
             lines = []
@@ -112,7 +97,7 @@ Penalize assets with NEGATIVE news sentiment unless technical momentum is except
                 top_headline = sent.get("top_headlines", [""])[0][:80] if sent.get("top_headlines") else "no recent news"
 
                 liq = a.get("avg_daily_value_m")
-                liq_str = f"${liq:.0f}M/day" if liq is not None else "ETF/high-liq"
+                liq_str = f"${liq:.0f}M/day" if liq is not None else "high-liq"
                 line = (
                     f"  {sym}: price=${a.get('price', 'N/A')}, "
                     f"liquidity={liq_str}, "
@@ -124,16 +109,26 @@ Penalize assets with NEGATIVE news sentiment unless technical momentum is except
                 lines.append(line)
             return "\n".join(lines)
 
+        valid_symbols = {a["symbol"].upper() for a in stocks}
+
         result = self.chain.invoke({
             "macro_bias": macro_signals.get("macro_bias", "neutral"),
             "risk_environment": macro_signals.get("risk_environment", "mixed"),
             "dominant_themes": ", ".join(macro_signals.get("dominant_themes", [])),
-            "top_movers": fmt_assets(movers),
-            "sector_etfs": fmt_assets(sectors),
-            "index_etfs": fmt_assets(indices),
-            "bond_etfs": fmt_assets(bonds),
+            "mode": mode,
+            "stock_list": fmt_stocks(stocks),
             "format_instructions": self.parser.get_format_instructions(),
         })
+
+        # Hard filter: remove any symbol the LLM invented that wasn't in our stock list
+        original_count = len(result.get("candidates", []))
+        result["candidates"] = [
+            c for c in result.get("candidates", [])
+            if c.get("symbol", "").upper() in valid_symbols
+        ]
+        removed = original_count - len(result["candidates"])
+        if removed:
+            print(f"  [MarketScanner] Filtered out {removed} hallucinated symbol(s) not in stock universe")
 
         duration_ms = int((time.time() - start) * 1000)
         result["_duration_ms"] = duration_ms

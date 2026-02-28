@@ -227,22 +227,46 @@ Analyze performance, explain what worked and what didn't, and extract 1-3 lesson
 
             db = SessionLocal()
             try:
-                # 1. daily_portfolio_performance
-                db.add(DailyPortfolioPerformance(
-                    trading_day_id=trading_day_id,
-                    portfolio_value=round(total_value, 2),
-                    daily_profit_loss=round(pnl, 2),
-                    daily_return_pct=round(portfolio_return, 4),
-                    sharpe_ratio=round(sharpe, 4),
-                    max_drawdown=round(drawdown["max_drawdown"], 4),
-                    risk_exposure_score=round(risk_exposure_score, 2) if risk_exposure_score else None,
-                ))
+                is_first_run = False
 
-                # 2. benchmark_performance (one row per symbol)
+                # 1. daily_portfolio_performance — upsert (update if exists, insert if new)
+                existing_perf = db.query(DailyPortfolioPerformance).filter_by(
+                    trading_day_id=trading_day_id
+                ).first()
+                if existing_perf:
+                    # Re-run: update in place, preserve historical record integrity
+                    existing_perf.portfolio_value     = round(total_value, 2)
+                    existing_perf.daily_profit_loss   = round(pnl, 2)
+                    existing_perf.daily_return_pct    = round(portfolio_return, 4)
+                    existing_perf.sharpe_ratio        = round(sharpe, 4)
+                    existing_perf.max_drawdown        = round(drawdown["max_drawdown"], 4)
+                    existing_perf.risk_exposure_score = round(risk_exposure_score, 2) if risk_exposure_score else None
+                else:
+                    # First run: insert new record
+                    is_first_run = True
+                    db.add(DailyPortfolioPerformance(
+                        trading_day_id=trading_day_id,
+                        portfolio_value=round(total_value, 2),
+                        daily_profit_loss=round(pnl, 2),
+                        daily_return_pct=round(portfolio_return, 4),
+                        sharpe_ratio=round(sharpe, 4),
+                        max_drawdown=round(drawdown["max_drawdown"], 4),
+                        risk_exposure_score=round(risk_exposure_score, 2) if risk_exposure_score else None,
+                    ))
+
+                # 2. benchmark_performance — upsert per symbol
                 for sym, data in benchmarks.items():
                     ret_pct = data.get("return_pct")
                     price = data.get("price")
-                    if ret_pct is not None:
+                    if ret_pct is None:
+                        continue
+                    existing_bench = db.query(BenchmarkPerformance).filter_by(
+                        trading_day_id=trading_day_id, benchmark_symbol=sym
+                    ).first()
+                    if existing_bench:
+                        existing_bench.benchmark_return_pct = round(ret_pct, 4)
+                        existing_bench.benchmark_value = round(price, 2) if price else None
+                    else:
                         db.add(BenchmarkPerformance(
                             trading_day_id=trading_day_id,
                             benchmark_symbol=sym,
@@ -250,7 +274,8 @@ Analyze performance, explain what worked and what didn't, and extract 1-3 lesson
                             benchmark_value=round(price, 2) if price else None,
                         ))
 
-                # 3. strategy_performance_summary — update the matched strategy
+                # 3. strategy_performance_summary — only accumulate on first run
+                # Re-runs only update sharpe/drawdown to avoid double-counting cumulative return
                 td = db.query(TradingDay).filter_by(trading_day_id=trading_day_id).first()
                 if td and td.strategy_type:
                     strategy = db.query(Strategy).filter_by(
@@ -264,9 +289,11 @@ Analyze performance, explain what worked and what didn't, and extract 1-3 lesson
                             .first()
                         )
                         if summary:
-                            # Incremental update: rolling average approximation
-                            prev_ret = float(summary.cumulative_return or 0)
-                            summary.cumulative_return = round(prev_ret + portfolio_return, 4)
+                            if is_first_run:
+                                # Only add to cumulative return on first EOD run for this day
+                                prev_ret = float(summary.cumulative_return or 0)
+                                summary.cumulative_return = round(prev_ret + portfolio_return, 4)
+                            # Always update risk metrics (re-runs recalculate these correctly)
                             summary.sharpe_ratio = round(sharpe, 4)
                             summary.max_drawdown = round(drawdown["max_drawdown"], 4)
                         else:
@@ -283,3 +310,4 @@ Analyze performance, explain what worked and what didn't, and extract 1-3 lesson
                 db.close()
         except Exception as e:
             log.error("[PerformanceAgent] DB store failed: %s", e)
+            print(f"  [PerformanceAgent] ERROR storing to DB: {e}")

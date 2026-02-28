@@ -6,19 +6,26 @@ import yfinance as yf
 import pandas as pd
 from typing import List, Dict, Optional
 
-# Universe of assets the scanner can pull from
-SECTOR_ETFS = ["XLK", "XLF", "XLE", "XLV", "XLI", "XLC", "XLP", "XLRE", "XLB", "XLU"]
-INDEX_ETFS = ["SPY", "QQQ", "DIA"]
-BOND_ETFS = ["TLT", "IEF", "BND", "SHY", "LQD"]
+# Benchmark ETFs — used ONLY for performance comparison, never for investment selection
 BENCHMARK_SYMBOLS = ["SPY", "QQQ", "DIA", "IVV"]
 
-# S&P 500 large-cap sample for movers scan
+# S&P 500 large-cap sample for movers scan (investment candidates)
 SP500_SAMPLE = [
     "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA", "BRK-B",
     "JPM", "UNH", "V", "XOM", "LLY", "JNJ", "AVGO", "PG", "MA", "COST",
     "HD", "MRK", "ABBV", "CVX", "WMT", "BAC", "KO", "PFE", "AMD", "ADBE",
     "CRM", "TMO", "NFLX", "DIS", "CSCO", "ABT", "ACN", "MCD", "NEE", "RTX",
     "CAT", "GE", "HON", "IBM", "INTC", "GS", "ORCL", "QCOM", "TXN", "AMGN"
+]
+
+# Defensive large-caps used when VIX > 25 (consumer staples, healthcare, utilities)
+DEFENSIVE_STOCKS = [
+    # Consumer Staples
+    "PG", "KO", "PEP", "WMT", "COST", "MDLZ", "CL", "GIS",
+    # Healthcare
+    "JNJ", "UNH", "PFE", "ABBV", "MRK", "TMO", "ABT", "BMY",
+    # Utilities
+    "NEE", "DUK", "SO", "D", "AEP",
 ]
 
 
@@ -102,70 +109,53 @@ def get_top_movers(n: int = 10) -> List[Dict]:
     return results[:n]
 
 
-def get_sector_etfs() -> List[Dict]:
-    """Return sector ETF data with momentum and volatility scores."""
+def get_defensive_stocks(n: int = 15) -> List[Dict]:
+    """
+    Return defensive large-cap stocks for use in high-VIX / defensive mode.
+    Pulls from consumer staples, healthcare, and utilities sectors.
+    """
     results = []
-    for symbol in SECTOR_ETFS:
+    tickers = yf.download(
+        DEFENSIVE_STOCKS, period="10d", interval="1d",
+        group_by="ticker", auto_adjust=True, progress=False
+    )
+
+    for symbol in DEFENSIVE_STOCKS:
         try:
-            ticker = yf.Ticker(symbol)
-            hist = ticker.history(period="35d")
-            price = _safe_price(ticker)
-            if not price:
+            if isinstance(tickers.columns, pd.MultiIndex):
+                close = tickers[symbol]["Close"].dropna()
+                volume = tickers[symbol]["Volume"].dropna()
+            else:
+                close = tickers["Close"].dropna()
+                volume = tickers["Volume"].dropna()
+
+            if len(close) < 2:
                 continue
+
+            price = float(close.iloc[-1])
+            if price < 5:
+                continue
+
+            avg_vol = float(volume.mean()) if len(volume) > 0 else 0
+            avg_daily_value = price * avg_vol
+            if avg_daily_value < 10_000_000:
+                continue
+
+            ret_5d = (close.iloc[-1] - close.iloc[-5]) / close.iloc[-5] if len(close) >= 5 else 0
             results.append({
                 "symbol": symbol,
-                "asset_type": "etf",
-                "price": price,
-                "momentum_score": _momentum_score(hist),
-                "volatility_score": _volatility_score(hist),
+                "asset_type": "stock",
+                "price": round(price, 2),
+                "return_5d": round(float(ret_5d), 4),
+                "momentum_score": round(min(max((float(ret_5d) + 0.10) / 0.20, 0), 1), 3),
+                "volatility_score": 0.3,  # defensive stocks carry lower vol by nature
+                "avg_daily_value_m": round(avg_daily_value / 1_000_000, 1),
             })
         except Exception:
             continue
-    return results
 
-
-def get_index_data() -> List[Dict]:
-    """Return major index ETF data."""
-    results = []
-    for symbol in INDEX_ETFS:
-        try:
-            ticker = yf.Ticker(symbol)
-            hist = ticker.history(period="35d")
-            price = _safe_price(ticker)
-            if not price:
-                continue
-            results.append({
-                "symbol": symbol,
-                "asset_type": "etf",
-                "price": price,
-                "momentum_score": _momentum_score(hist),
-                "volatility_score": _volatility_score(hist),
-            })
-        except Exception:
-            continue
-    return results
-
-
-def get_bond_etfs() -> List[Dict]:
-    """Return bond ETF data."""
-    results = []
-    for symbol in BOND_ETFS:
-        try:
-            ticker = yf.Ticker(symbol)
-            hist = ticker.history(period="35d")
-            price = _safe_price(ticker)
-            if not price:
-                continue
-            results.append({
-                "symbol": symbol,
-                "asset_type": "bond_etf",
-                "price": price,
-                "momentum_score": _momentum_score(hist),
-                "volatility_score": _volatility_score(hist),
-            })
-        except Exception:
-            continue
-    return results
+    results.sort(key=lambda x: x["avg_daily_value_m"], reverse=True)
+    return results[:n]
 
 
 def get_current_price(symbol: str) -> Optional[float]:
